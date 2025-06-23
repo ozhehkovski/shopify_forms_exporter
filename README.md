@@ -15,7 +15,7 @@ One click fetches *all* form submissions via the same GraphQL endpoint the admin
 
 ## Installation (dev build)
 
-[Installation and usage guide for the extension](https://www.example.com/my%20great%20page)
+[Installation and usage guide for the extension](https://dataease.app/shopify_forms_exporter/)
 
 1. Download / unzip this repo.  
 2. Visit `chrome://extensions`, enable *Developer mode*, click **Load unpacked** and select the folder.  
