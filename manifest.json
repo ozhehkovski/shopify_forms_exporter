@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Shopify Forms Exporter",
+  "version": "1.4.2",
+  "description": "Export Shopify Forms submissions to Excel\u2011ready CSV.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://admin.shopify.com/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://admin.shopify.com/store/*/apps/*forms*/**",
+        "https://admin.shopify.com/store/*/content/metaobjects/*shopify-forms*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
