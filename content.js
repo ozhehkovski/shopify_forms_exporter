@@ -4,8 +4,9 @@
     try {
       const { storeHandle, appId, formId } = parsePageInfo();
       const csrfToken = await getCsrfToken();
-      if (!csrfToken) throw new Error("CSRF_MISSING");
+      if (!csrfToken) throw new Error("CSRF token not found. Reload the page and try again.");
       const records = await fetchAllSubmissions(storeHandle, appId, formId, csrfToken);
+      if (!records.length) throw new Error("No submissions found for this form.");
       const csv = convertToCSV(records);
       downloadCSV(csv, `form_${formId}_submissions_${new Date().toISOString().slice(0,10)}.csv`);
       chrome.runtime.sendMessage({type: "download-complete", success: true});
@@ -19,37 +20,93 @@
     if (msg?.type === "downloadData") handleDownload();
   });
 
-  function getCsrfToken() {
-    return new Promise(resolve=>{
-      chrome.runtime.sendMessage({type:"get-csrf"}, resp=> resolve(resp?.token||""));
+  // ── CSRF extraction (multiple strategies) ──────────────────────────
+
+  async function getCsrfToken() {
+    // Strategy 1: Service worker cache (captured from webRequest)
+    try {
+      const fromSW = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({type:"get-csrf"}, resp => {
+          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+          else resolve(resp?.token || "");
+        });
+      });
+      if (fromSW) return fromSW;
+    } catch (_) {}
+
+    // Strategy 2: <meta name="csrf-token"> in the current DOM
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta?.content) return meta.content;
+
+    // Strategy 3: Fetch the page shell HTML and extract meta tag
+    try {
+      const resp = await fetch(window.location.href, { credentials: "include" });
+      const html = await resp.text();
+      const m = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/);
+      if (m?.[1]) return m[1];
+    } catch (_) {}
+
+    // Strategy 4: Inject into page context to read JS-accessible token
+    try {
+      const fromPage = await extractCsrfFromPageContext();
+      if (fromPage) return fromPage;
+    } catch (_) {}
+
+    return "";
+  }
+
+  function extractCsrfFromPageContext() {
+    return new Promise(resolve => {
+      const id = "__sfe_csrf_" + Math.random().toString(36).slice(2);
+
+      const handler = (e) => {
+        document.removeEventListener(id, handler);
+        resolve(e.detail || "");
+      };
+      document.addEventListener(id, handler);
+
+      const script = document.createElement("script");
+      script.textContent = `(function(){
+        var t = "";
+        try {
+          var m = document.querySelector('meta[name="csrf-token"]');
+          if (m) t = m.content;
+          if (!t && window.Shopify && window.Shopify.csrf) t = window.Shopify.csrf;
+        } catch(e){}
+        document.dispatchEvent(new CustomEvent("${id}",{detail:t}));
+      })();`;
+      document.documentElement.appendChild(script);
+      script.remove();
+
+      setTimeout(() => resolve(""), 500);
     });
   }
 
+  // ── URL parsing ────────────────────────────────────────────────────
+
   function parsePageInfo() {
     const href = window.location.href;
-    // Try to capture both appId and formId from full url
     let m = href.match(/app--(\d+)--shopify-forms(\d{3,})/);
     let appId, formId;
     if (m) {
       appId = m[1];
       formId = m[2];
     } else {
-      // fallback: only formId present
       m = href.match(/shopify-forms(\d{3,})/);
-      if (!m) throw new Error("Form ID not found in URL");
+      if (!m) throw new Error("Form ID not found in URL. Navigate to a specific form page.");
       formId = m[1];
-      // default Shopify Forms appId
       appId = "6171699";
     }
 
-    // store handle
     const parts = window.location.pathname.split("/");
     const storeIdx = parts.indexOf("store");
-    if (storeIdx === -1) throw new Error("Store handle not found");
+    if (storeIdx === -1) throw new Error("Store handle not found in URL.");
     const storeHandle = parts[storeIdx+1];
 
     return { storeHandle, appId, formId };
   }
+
+  // ── Data fetching ──────────────────────────────────────────────────
 
   async function fetchAllSubmissions(storeHandle, appId, formId, csrfToken) {
     const type = `app--${appId}--shopify-forms${formId}`;
@@ -68,16 +125,16 @@
       const headers={
         "Content-Type":"application/json",
         "Accept":"application/json",
-        "x-shopify-web-force-proxy":"1"
+        "x-shopify-web-force-proxy":"1",
+        "x-csrf-token":csrfToken
       };
-      if(csrfToken) headers["x-csrf-token"]=csrfToken;
       const resp=await fetch(endpoint,{
         method:"POST",
         headers,
         body:JSON.stringify({operationName:"Submissions",variables,query:QUERY}),
         credentials:"include"
       });
-      if(resp.status===403) throw new Error("403 – CSRF token invalid; reload page");
+      if(resp.status===403) throw new Error("403 – Session expired. Reload the page and try again.");
       if(!resp.ok) throw new Error(`Request failed with status ${resp.status}`);
       const data=await resp.json();
       (data?.data?.metaobjects?.edges||[]).forEach(e=>rows.push(flatten(e.node)));
@@ -92,6 +149,8 @@
     node.fields.forEach(f=>r[f.key]=f.value);
     return r;
   }
+
+  // ── CSV generation ─────────────────────────────────────────────────
 
   function convertToCSV(rows){
     if(!rows.length) return "";
