@@ -1,21 +1,29 @@
 
-const tokenCache = new Map();
+// Persist tokens in chrome.storage.session so they survive service worker restarts.
+// MV3 service workers are ephemeral — an in-memory Map gets wiped when Chrome
+// terminates the worker (~30 s of inactivity).
+
 chrome.webRequest.onBeforeSendHeaders.addListener(
   details => {
     const hdr = details.requestHeaders.find(h => h.name.toLowerCase() === "x-csrf-token");
     if (hdr && hdr.value) {
-      tokenCache.set(details.tabId, hdr.value);
-      chrome.runtime.sendMessage({ type: "csrf-found", tabId: details.tabId });
+      const key = "csrf_" + details.tabId;
+      chrome.storage.session.set({ [key]: hdr.value });
+      chrome.runtime.sendMessage({ type: "csrf-found", tabId: details.tabId }).catch(() => {});
     }
   },
-  { urls: ["https://admin.shopify.com/api/shopify/*"] },
+  // Widen the filter to catch any Shopify admin API path
+  { urls: ["https://admin.shopify.com/api/*", "https://admin.shopify.com/internal/*"] },
   ["requestHeaders", "extraHeaders"]
 );
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "get-csrf") {
     const tabId = msg.tabId ?? sender?.tab?.id;
-    sendResponse({ token: tokenCache.get(tabId) || "" });
+    const key = "csrf_" + tabId;
+    chrome.storage.session.get(key).then(result => {
+      sendResponse({ token: result[key] || "" });
+    });
+    return true; // keep channel open for async sendResponse
   }
-  return false; // synchronous response
 });

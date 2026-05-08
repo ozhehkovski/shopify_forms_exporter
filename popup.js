@@ -3,34 +3,29 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btn = document.getElementById("downloadBtn");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  async function queryCsrf() {
-    return new Promise(resolve => {
-      chrome.runtime.sendMessage({ type: "get-csrf", tabId: tab.id }, resp => {
-        resolve(resp?.token ?? "");
-      });
-    });
-  }
+  // Enable the button based on URL — don't wait for CSRF token.
+  // The content script will extract CSRF when the download runs.
+  const isShopifyAdmin = tab.url?.includes("admin.shopify.com/store/");
 
-  // initial token check
-  if (await queryCsrf()) {
+  if (isShopifyAdmin) {
     btn.disabled = false;
     btn.textContent = "Download data";
+  } else {
+    btn.textContent = "Open a Shopify Forms page";
+    btn.disabled = true;
   }
-
-  // listen when token appears
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "csrf-found" && msg.tabId === tab.id) {
-      btn.disabled = false;
-      btn.textContent = "Download data";
-    }
-  });
 
   btn.addEventListener("click", async () => {
     if (btn.disabled) return;
     btn.disabled = true;
     btn.textContent = "Running…";
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-    chrome.tabs.sendMessage(tab.id, { type: "downloadData" });
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      chrome.tabs.sendMessage(tab.id, { type: "downloadData" });
+    } catch (err) {
+      btn.textContent = "Error: " + err.message;
+      setTimeout(() => { btn.textContent = "Download data"; btn.disabled = false; }, 5000);
+    }
   });
 
   chrome.runtime.onMessage.addListener((msg) => {

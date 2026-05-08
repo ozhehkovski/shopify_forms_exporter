@@ -4,14 +4,16 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: Arial, sans-serif; margin: 16px; width: 200px; }
+    body { font-family: Arial, sans-serif; margin: 16px; width: 220px; }
     button { background:#008060; color:#fff; border:none; padding:8px 12px; border-radius:4px; cursor:pointer; width:100%; }
     button:disabled { opacity:.6; cursor:not-allowed; }
+    .hint { display:block; margin-top:8px; text-align:center; color:#999; font-size:11px; }
     small { display:block; margin-top:8px; text-align:center; color:#666; }
   </style>
 </head>
 <body>
   <button id="downloadBtn" disabled>Loading…</button>
+  <span class="hint">Make sure you're on a Shopify Forms page</span>
   <small>Developed with ❤️ by the <a href="https://dataease.app/">DataEase team</a>.</small>
   <script src="popup.js"></script>
 </body>
